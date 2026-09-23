@@ -2,7 +2,10 @@
 name = "switchdeck"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pillow>=11.0.0",
+    "pystray>=0.19.5",
+]
 
 [project.scripts]
 switchdeck = "switchdeck.cli:main"

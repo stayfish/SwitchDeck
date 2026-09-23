@@ -35,6 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
     roundtrip.add_argument("away", type=parse_number, help="目标输入源值（Mac）")
     roundtrip.add_argument("back", type=parse_number, help="返回输入源值（Windows）")
     roundtrip.add_argument("--delay", type=float, default=8.0, help="返回前等待秒数")
+
+    agent = subparsers.add_parser("agent", help="启动托盘后台程序和全局快捷键")
+    agent.add_argument(
+        "--windows-input", type=parse_number, default=0x11, help="Windows 输入值"
+    )
+    agent.add_argument("--mac-input", type=parse_number, default=0x0F, help="Mac 输入值")
     return parser
 
 
@@ -54,6 +60,16 @@ def describe_vcp(monitor: Monitor) -> str:
 
 
 def run(args: argparse.Namespace) -> int:
+    if args.command == "agent":
+        from switchdeck.agent import run_agent
+
+        return run_agent(
+            monitor_name=args.monitor,
+            monitor_index=args.index,
+            windows_input=args.windows_input,
+            mac_input=args.mac_input,
+        )
+
     with open_monitors() as monitors:
         if args.command == "list":
             if not monitors:

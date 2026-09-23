@@ -71,6 +71,28 @@ uv run switchdeck roundtrip 0x11 0x0f --delay 8
 
 紧急情况下可使用显示器实体按键切回，不要在尚未验证回切能力时设置过长延时。
 
+## Windows 托盘后台程序
+
+完成输入值验证后，启动常驻程序：
+
+```powershell
+uv run switchdeck agent
+```
+
+默认配置与当前 U2724D 接线一致：Windows/HDMI 为 `0x11`，Mac/DisplayPort 为 `0x0F`。运行后：
+
+- 按 `Ctrl+Alt+Space` 在 Windows 和 Mac 之间切换。
+- 双击系统托盘里的 SwitchDeck 显示器图标进行切换。
+- 右键托盘图标可直接选择 `Windows` 或 `Mac`，也可以退出程序。
+
+如果以后更换接线，可以覆盖输入值：
+
+```powershell
+uv run switchdeck agent --windows-input 0x0f --mac-input 0x11
+```
+
+当前后台程序必须运行在 Windows 上。macOS 需要单独实现原生 DDC/CI 后端；它不影响 Windows 后台程序在画面切到 Mac 后继续发送切回命令。
+
 ## 测试
 
 ```powershell
