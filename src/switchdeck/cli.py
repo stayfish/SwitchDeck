@@ -6,14 +6,14 @@ import time
 from collections.abc import Sequence
 
 from switchdeck.monitor import INPUT_SOURCE_VCP_CODE, Monitor, MonitorError, parse_number
-from switchdeck.windows import open_monitors
+from switchdeck.backend import open_monitors
 
 LOGGER = logging.getLogger("switchdeck")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="switchdeck", description="通过 Windows DDC/CI 控制显示器输入源"
+        prog="switchdeck", description="通过 DDC/CI 控制显示器输入源"
     )
     parser.add_argument(
         "--monitor", default="U2724D", help="显示器描述匹配文本（默认: U2724D）"
@@ -32,15 +32,27 @@ def build_parser() -> argparse.ArgumentParser:
     roundtrip = subparsers.add_parser(
         "roundtrip", help="切到另一输入源，并在延时后用同一句柄切回来"
     )
-    roundtrip.add_argument("away", type=parse_number, help="目标输入源值（Mac）")
-    roundtrip.add_argument("back", type=parse_number, help="返回输入源值（Windows）")
+    roundtrip.add_argument("away", type=parse_number, help="临时目标输入源值")
+    roundtrip.add_argument("back", type=parse_number, help="返回输入源值")
     roundtrip.add_argument("--delay", type=float, default=8.0, help="返回前等待秒数")
 
     agent = subparsers.add_parser("agent", help="启动托盘后台程序和全局快捷键")
     agent.add_argument(
-        "--windows-input", type=parse_number, default=0x11, help="Windows 输入值"
+        "--input-a",
+        "--windows-input",
+        dest="input_a",
+        type=parse_number,
+        default=0x11,
+        help="输入源 A 的值（默认: 0x11）",
     )
-    agent.add_argument("--mac-input", type=parse_number, default=0x0F, help="Mac 输入值")
+    agent.add_argument(
+        "--input-b",
+        "--mac-input",
+        dest="input_b",
+        type=parse_number,
+        default=0x0F,
+        help="输入源 B 的值（默认: 0x0f）",
+    )
     return parser
 
 
@@ -66,8 +78,8 @@ def run(args: argparse.Namespace) -> int:
         return run_agent(
             monitor_name=args.monitor,
             monitor_index=args.index,
-            windows_input=args.windows_input,
-            mac_input=args.mac_input,
+            input_a=args.input_a,
+            input_b=args.input_b,
         )
 
     with open_monitors() as monitors:

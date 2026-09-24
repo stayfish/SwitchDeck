@@ -71,7 +71,7 @@ uv run switchdeck roundtrip 0x11 0x0f --delay 8
 
 紧急情况下可使用显示器实体按键切回，不要在尚未验证回切能力时设置过长延时。
 
-## Windows 托盘后台程序
+## Windows/macOS 托盘后台程序
 
 完成输入值验证后，启动常驻程序：
 
@@ -79,19 +79,40 @@ uv run switchdeck roundtrip 0x11 0x0f --delay 8
 uv run switchdeck agent
 ```
 
-默认配置与当前 U2724D 接线一致：Windows/HDMI 为 `0x11`，Mac/DisplayPort 为 `0x0F`。运行后：
+默认配置为输入源 A=`0x11`、输入源 B=`0x0F`。运行后：
 
-- 按 `Ctrl+Alt+Space` 在 Windows 和 Mac 之间切换。
+- 按 `Ctrl+Alt+Space` 在输入源 A 和输入源 B 之间切换。
 - 双击系统托盘里的 SwitchDeck 显示器图标进行切换。
-- 右键托盘图标可直接选择 `Windows` 或 `Mac`，也可以退出程序。
+- 右键托盘图标可直接选择 `输入源 A` 或 `输入源 B`，也可以退出程序。
 
 如果以后更换接线，可以覆盖输入值：
 
 ```powershell
-uv run switchdeck agent --windows-input 0x0f --mac-input 0x11
+uv run switchdeck agent --input-a 0x0f --input-b 0x11
 ```
 
-当前后台程序必须运行在 Windows 上。macOS 需要单独实现原生 DDC/CI 后端；它不影响 Windows 后台程序在画面切到 Mac 后继续发送切回命令。
+### macOS 准备
+
+Apple Silicon Mac 安装 `m1ddc`：
+
+```bash
+brew install m1ddc
+```
+
+Intel Mac 安装 `ddcctl`：
+
+```bash
+brew install ddcctl
+```
+
+然后安装依赖并启动：
+
+```bash
+uv sync
+uv run switchdeck agent
+```
+
+macOS 上快捷键为 `Control+Option+Space`，菜单栏图标可以直接选择 Windows 或 Mac。第一次监听全局快捷键时，需要在“系统设置 → 隐私与安全性 → 辅助功能”中允许当前终端或 SwitchDeck。Apple Silicon 默认调用 `m1ddc`，Intel 默认调用 `ddcctl`。
 
 ## 测试
 

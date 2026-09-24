@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from switchdeck.monitor import MonitorError, VcpValue
 
 PHYSICAL_MONITOR_DESCRIPTION_SIZE = 128
+ERROR_GRAPHICS_MONITOR_NO_LONGER_EXISTS = 0xC026258D
 
 
 class PhysicalMonitor(ctypes.Structure):
@@ -65,7 +66,9 @@ class WindowsMonitor:
     def close(self) -> None:
         if not self._closed:
             if not self._dxva2.DestroyPhysicalMonitor(self._handle):
-                _raise_last_error("释放物理显示器句柄失败", self.description)
+                error_code = ctypes.get_last_error() & 0xFFFFFFFF
+                if error_code != ERROR_GRAPHICS_MONITOR_NO_LONGER_EXISTS:
+                    _raise_last_error("释放物理显示器句柄失败", self.description)
             self._closed = True
 
 

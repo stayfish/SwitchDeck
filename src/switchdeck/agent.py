@@ -4,13 +4,14 @@ import ctypes
 import logging
 import sys
 import threading
+import time
 from ctypes import wintypes
 from dataclasses import dataclass
 from typing import Callable
 
 from switchdeck.cli import select_monitor
 from switchdeck.monitor import INPUT_SOURCE_VCP_CODE, Monitor, MonitorError
-from switchdeck.windows import open_monitors
+from switchdeck.backend import open_monitors
 
 LOGGER = logging.getLogger("switchdeck")
 
@@ -30,13 +31,22 @@ class InputTarget:
 
 
 class InputController:
-    def __init__(self, monitor: Monitor, windows_input: int, mac_input: int) -> None:
-        if windows_input == mac_input:
-            raise ValueError("Windows 和 Mac 的输入值不能相同")
+    def __init__(
+        self,
+        monitor: Monitor,
+        input_a: int,
+        input_b: int,
+        initial_target: str | None = None,
+    ) -> None:
+        if input_a == input_b:
+            raise ValueError("输入源 A 和输入源 B 的值不能相同")
         self.monitor = monitor
-        self.windows = InputTarget("Windows", windows_input)
-        self.mac = InputTarget("Mac", mac_input)
-        self._last_target: InputTarget | None = None
+        self.source_a = InputTarget("输入源 A", input_a)
+        self.source_b = InputTarget("输入源 B", input_b)
+        self._last_target: InputTarget | None = {
+            "a": self.source_a,
+            "b": self.source_b,
+        }.get(initial_target or "")
         self._lock = threading.Lock()
 
     def switch_to(self, target: InputTarget) -> str:
@@ -50,14 +60,14 @@ class InputController:
     def toggle(self) -> str:
         with self._lock:
             current = self._read_current_input()
-            if current == self.windows.value:
-                target = self.mac
-            elif current == self.mac.value:
-                target = self.windows
-            elif self._last_target == self.windows:
-                target = self.mac
+            if current == self.source_a.value:
+                target = self.source_b
+            elif current == self.source_b.value:
+                target = self.source_a
+            elif self._last_target == self.source_a:
+                target = self.source_b
             else:
-                target = self.windows
+                target = self.source_a
             self.monitor.set_vcp(INPUT_SOURCE_VCP_CODE, target.value)
             self._last_target = target
         message = f"已切换到 {target.name}（0x{target.value:02x}）"
@@ -74,6 +84,53 @@ class InputController:
         if raw != low_byte:
             LOGGER.debug("归一化显示器返回值 0x%x -> 0x%02x", raw, low_byte)
         return low_byte
+
+
+class ReopeningMonitor:
+    """Acquire a fresh physical-monitor handle for every DDC operation."""
+
+    def __init__(self, monitor_name: str, monitor_index: int) -> None:
+        self.description = monitor_name
+        self.monitor_name = monitor_name
+        self.monitor_index = monitor_index
+
+    def capabilities(self) -> str:
+        return self._call("capabilities")
+
+    def get_vcp(self, code: int):
+        return self._call("get_vcp", code)
+
+    def set_vcp(self, code: int, value: int) -> None:
+        self._call("set_vcp", code, value)
+
+    def close(self) -> None:
+        return None
+
+    def validate(self) -> None:
+        with open_monitors() as monitors:
+            self._select(monitors)
+
+    def _call(self, method_name: str, *args: object):
+        last_error: MonitorError | None = None
+        for attempt in range(3):
+            try:
+                with open_monitors() as monitors:
+                    monitor = self._select(monitors)
+                    return getattr(monitor, method_name)(*args)
+            except MonitorError as error:
+                last_error = error
+                if attempt < 2:
+                    time.sleep(0.2)
+        assert last_error is not None
+        raise last_error
+
+    def _select(self, monitors: list[Monitor]) -> Monitor:
+        if sys.platform == "darwin" and self.monitor_name == "U2724D":
+            try:
+                return monitors[self.monitor_index]
+            except IndexError as error:
+                raise MonitorError(f"--index {self.monitor_index} 超出显示器范围") from error
+        return select_monitor(monitors, self.monitor_name, self.monitor_index)
 
 
 class WindowsHotkey:
@@ -122,14 +179,34 @@ class WindowsHotkey:
             user32.UnregisterHotKey(None, HOTKEY_ID)
 
 
+class MacHotkey:
+    """Register Control+Option+Space through the macOS accessibility API."""
+
+    def __init__(self, callback: Callable[[], None]) -> None:
+        self.callback = callback
+        self._listener: object | None = None
+
+    def start(self) -> None:
+        try:
+            from pynput import keyboard
+        except (ImportError, OSError) as error:
+            raise MonitorError(f"无法加载 macOS 全局快捷键支持: {error}") from error
+        self._listener = keyboard.GlobalHotKeys({"<ctrl>+<alt>+<space>": self.callback})
+        self._listener.start()
+
+    def stop(self) -> None:
+        if self._listener is not None:
+            self._listener.stop()
+
+
 def run_agent(
     monitor_name: str,
     monitor_index: int,
-    windows_input: int,
-    mac_input: int,
+    input_a: int,
+    input_b: int,
 ) -> int:
-    if sys.platform != "win32":
-        raise MonitorError("托盘后台程序目前仅支持 Windows")
+    if sys.platform not in {"win32", "darwin"}:
+        raise MonitorError("托盘后台程序仅支持 Windows 和 macOS")
 
     try:
         import pystray
@@ -137,11 +214,13 @@ def run_agent(
     except ImportError as error:
         raise MonitorError("缺少托盘依赖，请先运行 uv sync") from error
 
-    collection = open_monitors()
-    monitors = collection.__enter__()
+    monitor = ReopeningMonitor(monitor_name, monitor_index)
+    monitor.validate()
     try:
-        monitor = select_monitor(monitors, monitor_name, monitor_index)
-        controller = InputController(monitor, windows_input, mac_input)
+        initial_target = "a" if sys.platform == "win32" else "b"
+        controller = InputController(
+            monitor, input_a, input_b, initial_target=initial_target
+        )
         image = Image.new("RGB", (64, 64), "#111827")
         draw = ImageDraw.Draw(image)
         draw.rounded_rectangle((7, 10, 57, 49), radius=5, outline="#60a5fa", width=5)
@@ -149,33 +228,48 @@ def run_agent(
 
         icon: object
 
+        def safe_notification(message: str, title: str) -> None:
+            try:
+                icon.notify(message, title)
+            except (NotImplementedError, AttributeError):
+                LOGGER.debug("当前托盘后端不支持系统通知")
+
         def notify(action: Callable[[], str]) -> None:
             try:
                 message = action()
-                icon.notify(message, "SwitchDeck")
             except Exception as error:
                 LOGGER.exception("切换失败")
-                icon.notify(str(error), "SwitchDeck 切换失败")
+                safe_notification(str(error), "SwitchDeck 切换失败")
+                return
+            safe_notification(message, "SwitchDeck")
 
         menu = pystray.Menu(
             pystray.MenuItem(
-                "切换 Windows / Mac",
+                "切换输入源 A / B",
                 lambda _icon, _item: notify(controller.toggle),
                 default=True,
             ),
             pystray.MenuItem(
-                "Windows",
-                lambda _icon, _item: notify(lambda: controller.switch_to(controller.windows)),
+                "输入源 A",
+                lambda _icon, _item: notify(
+                    lambda: controller.switch_to(controller.source_a)
+                ),
             ),
             pystray.MenuItem(
-                "Mac",
-                lambda _icon, _item: notify(lambda: controller.switch_to(controller.mac)),
+                "输入源 B",
+                lambda _icon, _item: notify(
+                    lambda: controller.switch_to(controller.source_b)
+                ),
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda _icon, _item: icon.stop()),
         )
         icon = pystray.Icon("SwitchDeck", image, "SwitchDeck", menu)
-        hotkey = WindowsHotkey(lambda: notify(controller.toggle))
+        hotkey = (
+            WindowsHotkey(lambda: notify(controller.toggle))
+            if sys.platform == "win32"
+            else MacHotkey(lambda: notify(controller.toggle))
+        )
         hotkey.start()
         LOGGER.info("SwitchDeck 已在后台运行；按 Ctrl+Alt+Space 切换，托盘图标可选择目标")
         try:
@@ -183,5 +277,5 @@ def run_agent(
         finally:
             hotkey.stop()
     finally:
-        collection.__exit__(None, None, None)
+        monitor.close()
     return 0
