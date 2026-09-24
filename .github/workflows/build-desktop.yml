@@ -27,6 +27,7 @@ jobs:
         with:
           name: SwitchDeck-Windows
           path: dist/SwitchDeck.exe
+          if-no-files-found: error
       - name: Package macOS application
         if: runner.os == 'macOS'
         run: ditto -c -k --sequesterRsrc --keepParent dist/SwitchDeck.app dist/SwitchDeck-macOS.zip
@@ -36,3 +37,4 @@ jobs:
         with:
           name: SwitchDeck-macOS
           path: dist/SwitchDeck-macOS.zip
+          if-no-files-found: error

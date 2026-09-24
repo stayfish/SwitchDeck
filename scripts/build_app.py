@@ -25,19 +25,20 @@ def main() -> None:
     else:
         raise SystemExit("桌面应用构建仅支持 Windows 和 macOS")
 
-    PyInstaller.__main__.run(
-        [
-            "--noconfirm",
-            "--clean",
-            "--windowed",
-            "--name=SwitchDeck",
-            f"--icon={icon_path}",
-            f"--paths={PROJECT_ROOT / 'src'}",
-            "--collect-all=pystray",
-            "--collect-all=pynput",
-            str(PROJECT_ROOT / "src" / "switchdeck" / "launcher.py"),
-        ]
-    )
+    arguments = [
+        "--noconfirm",
+        "--clean",
+        "--windowed",
+        "--name=SwitchDeck",
+        f"--icon={icon_path}",
+        f"--paths={PROJECT_ROOT / 'src'}",
+        "--collect-all=pystray",
+        "--collect-all=pynput",
+    ]
+    if sys.platform == "win32":
+        arguments.append("--onefile")
+    arguments.append(str(PROJECT_ROOT / "src" / "switchdeck" / "launcher.py"))
+    PyInstaller.__main__.run(arguments)
 
 
 if __name__ == "__main__":
