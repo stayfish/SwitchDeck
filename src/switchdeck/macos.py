@@ -74,6 +74,10 @@ def _find_helper() -> str:
         path = shutil.which(name)
         if path:
             return path
+        for directory in (Path("/opt/homebrew/bin"), Path("/usr/local/bin")):
+            candidate = directory / name
+            if candidate.is_file():
+                return str(candidate)
     if preferred[0] == "m1ddc":
         instruction = "brew install m1ddc"
     else:

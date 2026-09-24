@@ -1,0 +1,38 @@
+name: Build desktop apps
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install Python and build dependencies
+        run: uv sync --group build
+      - name: Build desktop application
+        run: uv run python scripts/build_app.py
+      - name: Upload Windows application
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwitchDeck-Windows
+          path: dist/SwitchDeck.exe
+      - name: Package macOS application
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent dist/SwitchDeck.app dist/SwitchDeck-macOS.zip
+      - name: Upload macOS application
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwitchDeck-macOS
+          path: dist/SwitchDeck-macOS.zip

@@ -12,13 +12,14 @@ from typing import Callable
 from switchdeck.cli import select_monitor
 from switchdeck.monitor import INPUT_SOURCE_VCP_CODE, Monitor, MonitorError
 from switchdeck.backend import open_monitors
+from switchdeck.idle import IdleCoordinator
 
 LOGGER = logging.getLogger("switchdeck")
 
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
-VK_SPACE = 0x20
+VK_S = 0x53
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 HOTKEY_ID = 1
@@ -134,7 +135,7 @@ class ReopeningMonitor:
 
 
 class WindowsHotkey:
-    """Register Ctrl+Alt+Space on a dedicated Windows message-loop thread."""
+    """Register Ctrl+Alt+S on a dedicated Windows message-loop thread."""
 
     def __init__(self, callback: Callable[[], None]) -> None:
         self.callback = callback
@@ -162,8 +163,8 @@ class WindowsHotkey:
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self._thread_id = kernel32.GetCurrentThreadId()
         modifiers = MOD_CONTROL | MOD_ALT | MOD_NOREPEAT
-        if not user32.RegisterHotKey(None, HOTKEY_ID, modifiers, VK_SPACE):
-            self._error = MonitorError("注册 Ctrl+Alt+Space 失败，快捷键可能已被占用")
+        if not user32.RegisterHotKey(None, HOTKEY_ID, modifiers, VK_S):
+            self._error = MonitorError("注册 Ctrl+Alt+S 失败，快捷键可能已被占用")
             self._ready.set()
             return
         self._ready.set()
@@ -180,7 +181,7 @@ class WindowsHotkey:
 
 
 class MacHotkey:
-    """Register Control+Option+Space through the macOS accessibility API."""
+    """Register Control+Option+S through the macOS accessibility API."""
 
     def __init__(self, callback: Callable[[], None]) -> None:
         self.callback = callback
@@ -191,7 +192,7 @@ class MacHotkey:
             from pynput import keyboard
         except (ImportError, OSError) as error:
             raise MonitorError(f"无法加载 macOS 全局快捷键支持: {error}") from error
-        self._listener = keyboard.GlobalHotKeys({"<ctrl>+<alt>+<space>": self.callback})
+        self._listener = keyboard.GlobalHotKeys({"<ctrl>+<alt>+s": self.callback})
         self._listener.start()
 
     def stop(self) -> None:
@@ -210,7 +211,7 @@ def run_agent(
 
     try:
         import pystray
-        from PIL import Image, ImageDraw
+        from switchdeck.icon import create_tray_image
     except ImportError as error:
         raise MonitorError("缺少托盘依赖，请先运行 uv sync") from error
 
@@ -221,10 +222,7 @@ def run_agent(
         controller = InputController(
             monitor, input_a, input_b, initial_target=initial_target
         )
-        image = Image.new("RGB", (64, 64), "#111827")
-        draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((7, 10, 57, 49), radius=5, outline="#60a5fa", width=5)
-        draw.rectangle((25, 50, 39, 56), fill="#60a5fa")
+        image = create_tray_image()
 
         icon: object
 
@@ -271,10 +269,16 @@ def run_agent(
             else MacHotkey(lambda: notify(controller.toggle))
         )
         hotkey.start()
-        LOGGER.info("SwitchDeck 已在后台运行；按 Ctrl+Alt+Space 切换，托盘图标可选择目标")
+        idle_coordinator: IdleCoordinator | None = None
         try:
+            idle_coordinator = IdleCoordinator()
+            idle_coordinator.start()
+            shortcut = "Ctrl+Alt+S" if sys.platform == "win32" else "Control+Option+S"
+            LOGGER.info("SwitchDeck 已在后台运行；按 %s 切换，托盘图标可选择目标", shortcut)
             icon.run()
         finally:
+            if idle_coordinator is not None:
+                idle_coordinator.stop()
             hotkey.stop()
     finally:
         monitor.close()
